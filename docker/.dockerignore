@@ -1,11 +1,9 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+#Ignoring git and cache folders
+.git
+.cache
+build-docker-image.sh
+run-docker-image.sh
 
-src/__debug_bin
 
 # For security
 *.key
@@ -23,8 +21,5 @@ src/__debug_bin
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Build directories
-**bin/
-
-# Dependency directories (remove the comment below to include it)
-# vendor/
+logs/
+test/
