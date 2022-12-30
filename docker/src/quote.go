@@ -22,9 +22,9 @@ const (
 	NDAYS   string = "NDAYS"
 
 	// This is the expected relative path of the certificate file allowing us to use TLS
-	TLS_CERT_FILE string = "../certs/certbundle.pem"
+	TLS_CERT_FILE string = "/certs/certbundle.pem"
 	// This is the expected relative path of the TLS key file
-	TLS_KEY_FILE string = "../certs/server.key"
+	TLS_KEY_FILE string = "/certs/server.key"
 
 	// The address we are listening on
 	LISTEN_ADDR string = "LISTEN_ADDR"

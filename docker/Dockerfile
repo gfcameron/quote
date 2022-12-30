@@ -25,15 +25,16 @@ RUN CGO_ENABLED=0 go build -v -o /${APP_NAME} $GOPATH/src/$CMD_PATH
 # Run stage
 FROM alpine:3.17
 
+RUN adduser --system user 
+
 WORKDIR /bin
 
 # Copy only required data into this image
 COPY --from=build /quote .
 
-# Expose application port
+# Expose port for API
 EXPOSE 8443
 
+USER user
+
 ENTRYPOINT ["/bin/quote"]
-
-
-
