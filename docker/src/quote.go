@@ -22,9 +22,9 @@ const (
 	NDAYS   string = "NDAYS"
 
 	// This is the expected relative path of the certificate file allowing us to use TLS
-	TLS_CERT_FILE string = "/certs/certbundle.pem"
+	TLS_CERT_FILE string = "../certs/certbundle.pem"
 	// This is the expected relative path of the TLS key file
-	TLS_KEY_FILE string = "/certs/server.key"
+	TLS_KEY_FILE string = "../certs/server.key"
 
 	// The address we are listening on
 	LISTEN_ADDR string = "LISTEN_ADDR"
@@ -183,7 +183,6 @@ func recoverHandler(next http.Handler) http.Handler {
 
 func requestQuote(w http.ResponseWriter, req *http.Request) {
 	var longQuote *Quote
-
 	// Retry until successful
 	for {
 		var code int
@@ -194,7 +193,6 @@ func requestQuote(w http.ResponseWriter, req *http.Request) {
 		log.Printf("remote service response:%d\n", code)
 		time.Sleep(retryTimeout)
 	}
-
 	// Make sure we have enough data coming back
 	daysAvailable := len(longQuote.Dayquotes)
 	if daysAvailable < env.nDays {
