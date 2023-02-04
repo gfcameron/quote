@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -34,7 +35,8 @@ const (
 	QUOTE_API   string = "/quote"
 
 	// Base URL to retrieve stock quotes
-	baseURL string = "https://www.alphavantage.co/query/?function=TIME_SERIES_DAILY_ADJUSTED"
+	DEFAULT_BASE_URL string = "https://www.alphavantage.co/query/?function=TIME_SERIES_DAILY_ADJUSTED"
+
 	// Time for quote server to respond
 	// requestTimeout time.Duration = time.Second * 10
 	// Retry interval.  TODO: Use an exponential backoff, and don't retry if unrecoverable error
@@ -52,7 +54,10 @@ const (
 	METADATA_AVERAGE_CLOSING_PRICE_LABEL string = "6. Average Close"
 )
 
-type environmentVariables struct {
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+type EnvironmentVariables struct {
 	// Required for accessing the quote server
 	apiKey string
 	// The symbol to fetch
@@ -64,6 +69,16 @@ type environmentVariables struct {
 	listenAddr string
 }
 
+// Options for the client connection
+type HttpClientOptions struct {
+	// Base URL of the quote server
+	baseURL string
+	// Insecure transport for testing
+	insecureSkipVerify bool
+	// connection timeout
+	timeout time.Duration
+}
+
 // This is the format the server returns quotes in
 type Quote struct {
 	Metadata  map[string]interface{} `json:"Meta Data"`
@@ -71,8 +86,32 @@ type Quote struct {
 }
 
 var (
-	env environmentVariables
+	Env EnvironmentVariables
+	Now func() time.Time
+
+	ClientOptions HttpClientOptions
+	Client        HTTPClient
 )
+
+// Setup the default
+func init() {
+	Now = time.Now
+
+	ClientOptions = HttpClientOptions{
+		baseURL:            DEFAULT_BASE_URL,
+		insecureSkipVerify: false,
+		timeout:            time.Second * 30,
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: ClientOptions.insecureSkipVerify},
+	}
+
+	Client = &http.Client{
+		Timeout:   ClientOptions.timeout,
+		Transport: tr,
+	}
+}
 
 func getEnvironmentVariables() {
 	nDays, err := strconv.Atoi(os.Getenv(NDAYS))
@@ -82,30 +121,28 @@ func getEnvironmentVariables() {
 	if nDays < 1 {
 		log.Fatalf("%s was not set or out of range, must be at least 1 day", NDAYS)
 	}
-	env = environmentVariables{
+	Env = EnvironmentVariables{
 		apiKey: os.Getenv(API_KEY),
 		symbol: os.Getenv(SYMBOL),
 		nDays:  nDays,
 
 		listenAddr: os.Getenv(LISTEN_ADDR),
 	}
-	if env.apiKey == "" {
+	if Env.apiKey == "" {
 		log.Fatalf("%s was not set", API_KEY)
 	}
-	if env.symbol == "" {
+	if Env.symbol == "" {
 		log.Fatalf("%s was not set", SYMBOL)
 	}
 
-	if env.listenAddr == "" {
-		env.listenAddr = DEFAULT_LISTEN_ADDR
+	if Env.listenAddr == "" {
+		Env.listenAddr = DEFAULT_LISTEN_ADDR
 	}
 }
 
 func getQuotesFromServer() (*Quote, int) {
-	client := &http.Client{
-		Timeout: time.Second * 10,
-	}
-	req, err := http.NewRequest("GET", baseURL, nil)
+
+	req, err := http.NewRequest("GET", ClientOptions.baseURL, nil)
 	if err != nil {
 		log.Printf("Got error %v", err.Error())
 		return nil, http.StatusBadRequest
@@ -116,16 +153,16 @@ func getQuotesFromServer() (*Quote, int) {
 
 	// appending to existing query args
 	q := req.URL.Query()
-	q.Set("symbol", env.symbol)
-	q.Set("apikey", env.apiKey)
+	q.Set("symbol", Env.symbol)
+	q.Set("apikey", Env.apiKey)
 	// Only return all available data if we really need it
-	if env.nDays > 100 {
+	if Env.nDays > 100 {
 		q.Set("outputsize", "full")
 	}
 
 	// assign encoded query string to http request
 	req.URL.RawQuery = q.Encode()
-	resp, err := client.Do(req)
+	resp, err := Client.Do(req)
 	if err != nil {
 		log.Printf("quote server reponse error %v", err)
 		return nil, http.StatusBadRequest
@@ -160,9 +197,9 @@ func healthCheckHandler(w http.ResponseWriter, req *http.Request) {
 
 func loggingHandler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
-		t1 := time.Now()
+		t1 := Now()
 		next.ServeHTTP(w, r)
-		t2 := time.Now()
+		t2 := Now()
 		log.Printf("[%s] %q %v\n", r.Method, r.URL.String(), t2.Sub(t1))
 	}
 	return http.HandlerFunc(fn)
@@ -195,8 +232,8 @@ func requestQuote(w http.ResponseWriter, req *http.Request) {
 	}
 	// Make sure we have enough data coming back
 	daysAvailable := len(longQuote.Dayquotes)
-	if daysAvailable < env.nDays {
-		errMsg := fmt.Sprintf("Requested %d days, only %d days of data is available", daysAvailable, env.nDays)
+	if daysAvailable < Env.nDays {
+		errMsg := fmt.Sprintf("Requested %d days, only %d days of data is available", daysAvailable, Env.nDays)
 		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
@@ -207,7 +244,7 @@ func requestQuote(w http.ResponseWriter, req *http.Request) {
 		days = append(days, day)
 	}
 	sort.Strings(days)
-	days = days[daysAvailable-env.nDays:]
+	days = days[daysAvailable-Env.nDays:]
 
 	// Trim longQuote to requested number of days
 	shortQuote := Quote{}
@@ -226,7 +263,7 @@ func requestQuote(w http.ResponseWriter, req *http.Request) {
 		}
 		dayCloseSum += dayClosePrice
 	}
-	dayCloseAverage := strconv.FormatFloat(dayCloseSum/float64(env.nDays), 'f', 2, 64)
+	dayCloseAverage := strconv.FormatFloat(dayCloseSum/float64(Env.nDays), 'f', 2, 64)
 	shortQuote.Metadata[METADATA_AVERAGE_CLOSING_PRICE_LABEL] = dayCloseAverage
 
 	body, err := json.Marshal(shortQuote)
@@ -265,5 +302,5 @@ func main() {
 	mux := http.NewServeMux()
 	setupHandlers(mux)
 
-	log.Fatal(http.ListenAndServeTLS(env.listenAddr, TLS_CERT_FILE, TLS_KEY_FILE, mux))
+	log.Fatal(http.ListenAndServeTLS(Env.listenAddr, TLS_CERT_FILE, TLS_KEY_FILE, mux))
 }

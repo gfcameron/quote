@@ -1,118 +1,161 @@
 # quote
+
 Stock quote service demo
 
 THis was built and tested with Linux Mint 20.10 although it should work with any recent Linux distro and possibly on other OS as well...
 
 ## Prerequisite software
+
 The versions listed below are what I used for development and testing - recent earlier versions **should** work since I am not relying on cutting edge features.
+
 - `golang` v1.18.1
 - `openssl` v3.0.2
 - `minikube` v1.28.0
 - `docker` Client: v20.20.22, Server: v20.10.20
 - `git` v2.34.1
-- `curl` v7.81.0 
+- `curl` v7.81.0
 - `jq` jq-1.6 (Optional for viewing json in an attractive format)
 
 ## Preparation
+
 clone repository
 create CA
 create certificate
 minikube addons enable ingress
 
 ### Building docker image
+
 Run `build-docker-image.sh` in the `docker` directory
 
 ## Running the standalone docker version
+
 After building the docker image, run `run-docker-image.sh` in the `docker` directory.
 
 ### Minikube prep
-1. Run the following:
-```
-minikube addons list
-```
-2. If the ingress addon is not enabled, run the following:
-```
-minikube start
-minikube addons enable ingress
-```
-3. Navigate to the certs directory
-```
-cd ../certs
-```
-4. Create the TLS secret for the ingress controller:
-```
-kubectl -n kube-system create secret tls mkcert --key server.key --cert certbundle.pem
-```
-5. Configure the ingress addon:
-```
-minikube addons configure ingress
 
-```
+1. Run the following:
+
+    ```sh
+    inikube addons list
+    ```
+
+2. If the ingress addon is not enabled, run the following:
+
+    ```sh
+    minikube start
+    minikube addons enable ingress
+    ```
+
+3. Navigate to the certs directory
+
+    ```sh
+    cd ../certs
+    ```
+
+4. Create the TLS secret for the ingress controller:
+
+    ```sh
+    kubectl -n kube-system create secret tls mkcert --key server.key --cert certbundle.pem
+    ```
+
+5. Configure the ingress addon:
+
+    ```sh
+    minikube addons configure ingress
+    ```
+
 6. When prompted, add the newly created secret: `kube-system/mkcert`
 7. Disable and re-enable the ingress addon to pick up the new secret.  This may take a few seconds:
-```
-minikube addons disable ingress
-minikube addons enable ingress
-```
+
+    ```sh
+    minikube addons disable ingress
+    minikube addons enable ingress
+    ```
+
 8. Verify the custom certificate was enabled:
-```
-kubectl -n ingress-nginx get deployment ingress-nginx-controller -o yaml | grep "kube-system" | jq '.'
-```
+
+    ```sh
+    kubectl -n ingress-nginx get deployment ingress-nginx-controller -o yaml | grep "kube-system" | jq '.'
+    ```
 
 ## Running the minikube version
+
 1. Navigate to the kubernetes directory
-```
-cd ../kubernetes
-```
+
+    ```sh
+    cd ../kubernetes
+    ```
+
 2. Start minikube if it is not currently running.  Run the following:
-```
-minikube start
-minikube addons enable ingress
-```
+
+    ```sh
+    minikube start
+    minikube addons enable ingress
+    ```
+
 3. Set the docker environment
-```
-eval $(minikube docker-env)
-```
+
+    ```sh
+    eval $(minikube docker-env)
+    ```
+
 4. Determine the minikube IP address:
 Run `minikube ip` and add `quote.info` as the minikube IP to the local hosts file.  This is `/etc/hosts` under linux.
 5. Load the locally built docker image:
-```
-minikube image load quote:latest
-```
-In practice, you would pull a fixed tag image from the repository, but using the latest works for testing purposes.
+
+    ```sh
+    minikube image load quote:latest
+    ```
+
+    In practice, you would pull a fixed tag image from the repository, but using the latest works for testing purposes.
 6. Create the configmap:
-```
-kubectl create -f config.yaml
-```
+
+    ```sh
+    kubectl create -f config.yaml
+    ```
+
 7. Create the `API_KEY` secret:
-```
-kubectl apply -f secrets.yaml
-```
+
+    ```sh
+    kubectl apply -f secrets.yaml
+    ```
+
 8. Create TLS secrets:
 I set things up so both the docker image and the ingress can both work with TLS to test and demo each that way.  It is a more common practice (and simpler) to terminate TLS at the ingress.
-```
-kubectl create secret generic certs --from-file=../certs/server.key --from-file=../certs/certbundle.pem
-```
-9. Create the deployment:
-```
-kubectl apply -f deployment.yaml
-```
-10. Create the service:
-```
-kubectl expose deployment stock-quote --port=8443
-```
-11. Apply the ingress:
-```
-kubectl apply -f quote-ingress.yaml
-```
 
-# Testing
+    ```sh
+    kubectl create secret generic certs --from-file=../certs/server.key --from-file=../certs/certbundle.pem
+    ```
+
+9. Create the deployment:
+
+    ```sh
+    kubectl apply -f deployment.yaml
+    ```
+
+10. Create the service:
+
+    ```sh
+    kubectl expose deployment stock-quote --port=8443
+    ```
+
+11. Apply the ingress:
+
+    ```sh
+    kubectl apply -f quote-ingress.yaml
+    ```
+
+## Testing
+
 To obtain the stock quote, run the following:
-```
+
+```sh
 curl -k -X GET https://quote.info/quote | jq '.'
 ```
+
 The average closing price is added to the metadata as item 6:
-```
+
+```sh
  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
 100  1255  100  1255    0     0    638      0  0:00:01  0:00:01 --:--:--   638
@@ -153,13 +196,16 @@ The average closing price is added to the metadata as item 6:
   }
 }
 ```
+
 If NDAYS is set larger than 100 it automatically fetches the non-compact data from the server to complete your request.  If you request more data than is availble then an error will be returned.
 
 You may also navigate to `https://quote.info/quote` in a browser window to obtain the data, after accepting the warnings about self-signed certificates.
 
-# Shutdown
+## Shutdown
+
 To terminate the deployment and remove all components:
-```
+
+```sh
 kubectl delete service stock-quote
 kubectl delete ingress quote-ingress
 kubectl delete deploy stock-quote
@@ -168,9 +214,10 @@ kubectl delete secret certs
 kubectl delete secret quote-secret
 ```
 
-# Possible future work
+## Possible future work
+
 - Tweak resource limits (I am being overly genererous with the app)
-- Use a real (not self-signed) TLS certificate from a source like Let's encrypt: https://letsencrypt.org/
+- Use a real (not self-signed) TLS certificate from a source like Let's encrypt: <https://letsencrypt.org/>
 - Script the launch and teardown
 - Create a Helm chart for it
 - Create makefile
